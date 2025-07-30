@@ -1,12 +1,18 @@
 use borsh::{BorshDeserialize, BorshSerialize};
+
 use solana_program::{
-    account_info::AccountInfo,
-    clock::Clock,
+    account_info::{AccountInfo, next_account_info},
     entrypoint,
     entrypoint::ProgramResult,
+    msg,
+    program::invoke_signed,
+    program_error::ProgramError,
+    // program_pack::Pack,
     pubkey::Pubkey,
-    sysvar::Sysvar,
+    sysvar::{Sysvar, rent::Rent},
 };
+use spl_token::pack::Pack;
+use spl_token::state::Mint;
 
 //use claimed records stored in PDA
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
@@ -63,7 +69,33 @@ fn process_instruction(
             tokens_per_claim,
             cooldown_seconds,
         } => {
-            todo!("Initialize Faucet")
+            msg!(
+                "Initializing faucet with {} tokens per claim, {} second cooldown",
+                tokens_per_claim,
+                cooldown_seconds
+            );
+
+            let accounts_iter = &mut accounts.iter();
+
+            //signer (admin account)
+            let admin_account = next_account_info(accounts_iter)?;
+            if !admin_account.is_signer {
+                msg!("Admin account must be a signer");
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+
+            //faucet config account (PDA creator)
+            let faucet_config_account = next_account_info(accounts_iter)?;
+
+            //token mint account (valid SOL token mint)
+            let token_mint_account = next_account_info(accounts_iter)?;
+
+            //system program (required to create accounts)
+            let system_program = next_account_info(accounts_iter)?;
+
+            //validate that token mint is actually a mint account (account that stores global metadata about a token)
+            let mint_data = Mint::unpack(&token_mint_account.data.borrow())?;
+            msg!("Token mint validated. Supply {}", mint_data.supply)
         }
         FaucetInstruction::ClaimTokens => {
             todo!("Claim Tokens");
