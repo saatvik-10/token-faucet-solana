@@ -10,8 +10,9 @@ use solana_program::{
     pubkey::Pubkey,
     sysvar::{Sysvar, rent::Rent},
 };
-use spl_token::solana_program::program_pack::Pack;
-use spl_token::state::Mint;
+use spl_token::{
+    ID as TOKEN_PROGRAM_ID, instruction::transfer, solana_program::program_pack::Pack, state::Mint,
+};
 
 //use claimed records stored in PDA
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
@@ -152,7 +153,32 @@ fn process_instruction(
             msg!("PDA of Faucet: {}", faucet_config_pda);
         }
         FaucetInstruction::ClaimTokens => {
-            todo!("Claim Tokens");
+            msg!("Processing claim tokens request");
+
+            //account iterator
+            let accounts_iter = &mut accounts.iter();
+
+            //user requesting tokens (must be a signer)
+            let user_account = next_account_info(accounts_iter)?;
+            if !user_account.is_signer {
+                msg!("User account must be a signer");
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+
+            //token account of user (to receive the tokens)
+            let user_token_account = next_account_info(accounts_iter)?;
+
+            // faucet treasury account token (tokens come from this)
+            let faucet_treasury_account = next_account_info(accounts_iter)?;
+
+            //faucet config account (contain settings)
+            let token_program = next_account_info(accounts_iter)?;
+
+            // token program
+            let token_program = next_account_info(accounts_iter)?;
+
+            //system program (needed to create user claim record if first time)
+            let system_program = next_account_info(accounts_iter)?;
         }
     }
     Ok(())
