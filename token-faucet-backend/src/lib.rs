@@ -1,6 +1,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     account_info::{AccountInfo, next_account_info},
+    clock::Clock,
     entrypoint,
     entrypoint::ProgramResult,
     example_mocks::solana_sdk::system_instruction,
@@ -152,6 +153,7 @@ fn process_instruction(
             msg!("Token Mint: {}", token_mint_account.key);
             msg!("PDA of Faucet: {}", faucet_config_pda);
         }
+
         FaucetInstruction::ClaimTokens => {
             msg!("Processing claim tokens request");
 
@@ -165,6 +167,9 @@ fn process_instruction(
                 return Err(ProgramError::MissingRequiredSignature);
             }
 
+            //user's claim record PDA(will create and update)
+            let user_claim_record_account = next_account_info(accounts_iter)?;
+
             //token account of user (to receive the tokens)
             let user_token_account = next_account_info(accounts_iter)?;
 
@@ -172,13 +177,76 @@ fn process_instruction(
             let faucet_treasury_account = next_account_info(accounts_iter)?;
 
             //faucet config account (contain settings)
-            let token_program = next_account_info(accounts_iter)?;
+            let faucet_account_config = next_account_info(accounts_iter)?;
 
             // token program
             let token_program = next_account_info(accounts_iter)?;
 
             //system program (needed to create user claim record if first time)
             let system_program = next_account_info(accounts_iter)?;
+
+            //load faucet config
+            let faucet_config = FaucetConfig::try_from_slice(&faucet_account_config.data.borrow())?;
+
+            //if faucet active or not
+            if !faucet_config.is_active {
+                msg!("Faucet is currently inactive");
+                return Err(ProgramError::InvalidAccountData);
+            }
+
+            //PDA for user claim record
+            let user_claim_seed = b"user_claim";
+            let (user_claim_pda, bump_seed) = Pubkey::find_program_address(
+                &[user_claim_seed, user_account.key.as_ref()], //converts Pubkey to &[u8]
+                program_id,
+            );
+
+            //verifying the passed account is the correct PDA
+            if user_claim_pda != *user_claim_record_account.key {
+                msg!("User claim record account is not the correct PDA");
+                return Err(ProgramError::InvalidAccountData);
+            }
+
+            //getting the current timestamp
+            let clock = Clock::get()?;
+            let current_time = clock.unix_timestamp;
+
+            //to check if the user's claim record exist
+            let mut user_record = if user_claim_record_account.data_len() == 0 {
+                msg!("User is claiming for the first time... Creating a new account!");
+
+                //creating the user claim record account
+                let user_record = UserClaimedRecord {
+                    user: *user_account.key,
+                    last_claim_time: 0, //no prev claim for the first timers
+                    total_claims: 0,
+                };
+
+                let required_space = borsh::to_vec(&user_record)?.len();
+                let rent = Rent::get()?;
+                let required_lamports = rent.minimum_balance(required_space);
+
+                let create_account_instruction = system_instruction::create_account(
+                    user_account.key,
+                    user_claim_record_account.key,
+                    required_lamports,
+                    required_space as u64,
+                    program_id,
+                );
+
+                invoke_signed(
+                    &create_account_instruction,
+                    &[
+                        user_account.clone(),
+                        user_claim_record_account.clone(),
+                        system_program.clone(),
+                    ],
+                    &[&[user_claim_seed, user_account.key.as_ref(), &[bump_seed]]],
+                )?;
+                user_record
+            } else {
+                todo!("Load the existing user!")
+            };
         }
     }
     Ok(())
