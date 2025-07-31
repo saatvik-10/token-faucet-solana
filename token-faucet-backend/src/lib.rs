@@ -4,7 +4,7 @@ use solana_program::{
     clock::Clock,
     entrypoint,
     entrypoint::ProgramResult,
-    example_mocks::solana_sdk::system_instruction,
+    system_instruction,
     msg,
     program::invoke_signed,
     program_error::ProgramError,
@@ -12,7 +12,7 @@ use solana_program::{
     sysvar::{Sysvar, rent::Rent},
 };
 use spl_token::{
-    ID as TOKEN_PROGRAM_ID, instruction::transfer, solana_program::program_pack::Pack, state::Mint,
+    ID as TOKEN_PROGRAM_ID, solana_program::program_pack::Pack, state::Mint,instruction::transfer,
 };
 
 //use claimed records stored in PDA
@@ -245,8 +245,51 @@ fn process_instruction(
                 )?;
                 user_record
             } else {
-                todo!("Load the existing user!")
+                //load existing user record
+                UserClaimedRecord::try_from_slice(&user_claim_record_account.data.borrow())?
             };
+
+            //checking cooldown period
+            let time_slice_last_claim = current_time - user_record.last_claim_time;
+
+            if time_slice_last_claim < faucet_config.cooldown_seconds {
+                let remaining_cooldown = faucet_config.cooldown_seconds - time_slice_last_claim;
+                msg!(
+                    "Cooldown period not met! Please wait for {} seconds",
+                    remaining_cooldown
+                );
+                return Err(ProgramError::InvalidAccountData);
+            }
+
+            msg!(
+                "Cooldown check passed! Transferring {} token",
+                faucet_config.tokens_per_claim
+            );
+
+            //creating token transfer instruction i.e. CPI
+            let transfer_instruction = transfer(
+                &TOKEN_PROGRAM_ID,
+                faucet_treasury_account.key, //source token account
+                user_token_account.key,      //destination token account
+                &user_claim_pda,             //authority (pda signing for faucet)
+                &[],
+                faucet_config.tokens_per_claim, //amount to transfer
+            ).map_err(|e| {
+                msg!("Failed to create transfer instruction: {:?}", e);
+                ProgramError::InvalidInstructionData
+            })?;
+
+            //execute the token transfer via CPI
+            invoke_signed(
+                &transfer_instruction,
+                &[
+                    faucet_treasury_account.clone(),
+                    user_token_account.clone(),
+                    user_claim_record_account.clone(),
+                    token_program.clone(),
+                ],
+                &[&[user_claim_seed, user_account.key.as_ref(), &[bump_seed]]], //pda signature
+            )?;
         }
     }
     Ok(())
