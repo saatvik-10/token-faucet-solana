@@ -4,16 +4,15 @@ use solana_program::{
     clock::Clock,
     entrypoint,
     entrypoint::ProgramResult,
-    system_instruction,
     msg,
     program::invoke_signed,
     program_error::ProgramError,
+    program_pack::Pack,
     pubkey::Pubkey,
+    system_instruction,
     sysvar::{Sysvar, rent::Rent},
 };
-use spl_token::{
-    ID as TOKEN_PROGRAM_ID, solana_program::program_pack::Pack, state::Mint,instruction::transfer,
-};
+use spl_token::{ID as TOKEN_PROGRAM_ID, instruction::transfer, state::Mint};
 
 //use claimed records stored in PDA
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
@@ -274,7 +273,8 @@ fn process_instruction(
                 &user_claim_pda,             //authority (pda signing for faucet)
                 &[],
                 faucet_config.tokens_per_claim, //amount to transfer
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 msg!("Failed to create transfer instruction: {:?}", e);
                 ProgramError::InvalidInstructionData
             })?;
@@ -290,6 +290,18 @@ fn process_instruction(
                 ],
                 &[&[user_claim_seed, user_account.key.as_ref(), &[bump_seed]]], //pda signature
             )?;
+
+            //updating user's claim records
+            user_record.last_claim_time = current_time;
+            user_record.total_claims += 1;
+
+            //saving the updated record
+            user_record.serialize(&mut &mut user_claim_record_account.data.borrow_mut()[..])?;
+
+            msg!("Tokens have been transferred successfully!");
+            msg!("User: {}", user_account.key);
+            msg!("Amount: {}", faucet_config.tokens_per_claim);
+            msg!("Total user claims: {}", user_record.total_claims);
         }
     }
     Ok(())
