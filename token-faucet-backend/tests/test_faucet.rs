@@ -1,4 +1,4 @@
-use borsh::BorshSerialize;
+use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     example_mocks::solana_sdk::system_instruction,
     instruction::{AccountMeta, Instruction},
@@ -9,6 +9,7 @@ use solana_program_test::*;
 use solana_sdk::{
     //provides transaction building tools
     account::Account,
+    address_lookup_table::program,
     program_pack::Pack,
     signature::{Keypair, Signer},
     sysvar::recent_blockhashes,
@@ -93,4 +94,65 @@ async fn test_initialize_faucet() {
     println!("Token mint has been created successfully");
     println!("Mint authority is: {}", admin_keypair.pubkey());
     println!("Decimals: 6");
+
+    //test faucet initialization
+
+    //creating the faucet config PDA (same as the program)
+    let faucet_config_seed = b"faucet_config";
+    let (faucet_config_pda, _bump) =
+        Pubkey::find_program_address(&[faucet_config_seed], &program_id);
+
+    //initializde faucet instruction data
+    let initialize_faucet = FaucetInstruction::InitializeFaucet {
+        tokens_per_claim: 1000000000,
+        cooldown_seconds: 60,
+    };
+
+    //instruction with all accounts that are required
+    let initialize_ix = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(admin_keypair.pubkey(), true),
+            AccountMeta::new(faucet_config_pda, false),
+            AccountMeta::new_readonly(mint_keypair.pubkey(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: borsh::to_vec(&initialize_faucet).unwrap(),
+    };
+
+    //creating and sending the transaction
+    let mut transaction = Transaction::new_with_payer(&[initialize_ix], Some(&payer.pubkey()));
+    transaction.sign(&[&payer, &admin_keypair], recent_blockhash);
+
+    //exectuing transactions and verifying if they go through
+    let res = banks_client.process_transaction(transaction).await;
+    assert!(res.is_ok(), "Failed tp initialize faucet: {:?}", res);
+
+    println!("Transaction to Initialize Faucet succeeded!");
+
+    //verifying is the faucet config was stored correctly
+    let config_account = banks_client
+        .get_account(faucet_config_pda)
+        .await
+        .unwrap()
+        .unwrap();
+    let faucet_config = FaucetConfig::try_from_slice(&config_account.data).unwrap();
+
+    //checking all stored values
+    assert_eq!(faucet_config.admin, admin_keypair.pubkey());
+    assert_eq!(faucet_config.token_mint, mint_keypair.pubkey());
+    assert_eq!(faucet_config.tokens_per_claim, 1000_000_000);
+    assert_eq!(faucet_config.cooldown_seconds, 60);
+    assert_eq!(faucet_config.is_active, true);
+
+    println!("Faucet Configuration Verified");
+    println!("Admin: {}", faucet_config.admin);
+    println!("Token Mint: {}", faucet_config.token_mint);
+    println!(
+        "Tokens per claims: {} ({})",
+        faucet_config.tokens_per_claim,
+        faucet_config.tokens_per_claim as f64 / 1_000_000.0
+    );
+    println!("Cooldown: {} seconds", faucet_config.cooldown_seconds);
+    println!("Active: {}", faucet_config.is_active);
 }
