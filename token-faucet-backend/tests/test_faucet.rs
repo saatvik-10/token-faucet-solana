@@ -5,7 +5,7 @@ use solana_program::{
     system_program,
 };
 use solana_program_test::*;
-use solana_sdk::{
+use solana_sdk::{ //provides transaction building tools
     account::Account,
     signature::{Keypair, Signer},
     sysvar::recent_blockhashes,
@@ -17,11 +17,11 @@ use spl_token::{
 };
 use token_faucet_backend::{FaucetConfig, FaucetInstruction, UserClaimedRecord};
 
-#[tokio::test]
+#[tokio::test] //handles async/await
 async fn test_initialize_faucet() {
     //creating the test env
     let program_id = Pubkey::new_unique();
-    let mut program_test = ProgramTest::new(
+    let mut program_test = ProgramTest::new( //mini Solana cluster just for testing so no need for solana-test-validator
         "token_faucet_backend",
         program_id,
         processor!(token_faucet_backend::process_instruction),
