@@ -276,4 +276,38 @@ async fn test_initialize_faucet() {
     println!("Token successfully minted to the treasury!");
     println!("Amount: 1,000 Tokens");
     println!("Treasury has enough amount to destribute the tokens");
+
+    //testing the claim tokens instruction
+    let user_claim_seed = b"user_claim";
+    let (user_claim_pda, _bump) = Pubkey::find_program_address(
+        &[user_claim_seed, user_keypair.pubkey().as_ref()],
+        &program_id,
+    );
+
+    //token claim instruction
+    let claim_instruction = FaucetInstruction::ClaimTokens;
+
+    let claim_ix = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(user_keypair.pubkey(), true), //user must sign
+            AccountMeta::new(user_claim_pda, false),       //user claim record PDA
+            AccountMeta::new(user_token_account.pubkey(), false), //will receive tokens here
+            AccountMeta::new(faucet_treasury_account.pubkey(), false), //source of tokens
+            AccountMeta::new(faucet_config_pda, false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: borsh::to_vec(&claim_instruction).unwrap(),
+    };
+
+    //sending the trasaction
+    let mut claim_tx = Transaction::new_with_payer(&[claim_ix], Some(&payer.pubkey()));
+    claim_tx.sign(&[&payer, &user_keypair], recent_blockhash);
+
+    //exetuing the claims
+    let res = banks_client.process_transaction(claim_tx).await;
+    assert!(res.is_ok(), "Tokem claim failed: {:?}", res);
+
+    println!("Tokens have been claimed successfully!");
 }
