@@ -14,6 +14,7 @@ use solana_sdk::{
     signature::{Keypair, Signer},
     sysvar::recent_blockhashes,
     transaction::Transaction,
+    vote::instruction,
 };
 use spl_token::{
     instruction::{initialize_mint, mint_to},
@@ -155,4 +156,60 @@ async fn test_initialize_faucet() {
     );
     println!("Cooldown: {} seconds", faucet_config.cooldown_seconds);
     println!("Active: {}", faucet_config.is_active);
+
+    println!("\n Testing claiming tokens...");
+
+    //user who wants to claim tokens
+    let user_keypair = Keypair::new();
+
+    //user token account
+    let user_token_account = Keypair::new();
+
+    println!("User created: {}", user_keypair.pubkey());
+    println!("User token account: {}", user_token_account.pubkey());
+
+    //creating user's token account
+
+    //calculating rent for the token account
+    let token_account_rent = banks_client.get_rent().await.unwrap();
+    let token_account_lamports = token_account_rent.minimum_balance(TokenAccount::LEN);
+
+    //creating user's token account (space allocation)
+    let create_user_token_ix = system_instruction::create_account(
+        &payer.pubkey(), //pays the account
+        &user_token_account.pubkey(),
+        token_account_lamports,
+        TokenAccount::LEN as u64,
+        &spl_token::id(),
+    );
+
+    //initializing user's token account
+    let init_user_token_account_ix = spl_token::instruction::initialize_account(
+        &spl_token::id(),
+        &user_token_account.pubkey(),
+        &mint_keypair.pubkey(), //type of token this account holds
+        &user_keypair.pubkey(),
+    )
+    .unwrap();
+
+    //sending both in one transaction
+    let mut user_token_account_tx = Transaction::new_with_payer(
+        &[create_user_token_ix, init_user_token_account_ix],
+        Some(&payer.pubkey()),
+    );
+    user_token_account_tx.sign(&[&payer, &user_token_account], recent_blockhash);
+
+    //executing the transaction
+    let res = banks_client
+        .process_transaction(user_token_account_tx)
+        .await;
+    assert!(
+        res.is_ok(),
+        "Failed to create user tokena account: {:?}",
+        res
+    );
+
+    println!("User token account created and initialized successfully!");
+    println!("Owner: {}", user_keypair.pubkey());
+    println!("Token type: {}", mint_keypair.pubkey());
 }
