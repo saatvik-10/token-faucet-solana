@@ -12,6 +12,7 @@ use solana_sdk::{
     address_lookup_table::program,
     program_pack::Pack,
     signature::{Keypair, Signer},
+    signer::keypair,
     sysvar::recent_blockhashes,
     transaction::Transaction,
     vote::instruction,
@@ -247,4 +248,32 @@ async fn test_initialize_faucet() {
         faucet_treasury_account.pubkey()
     );
     println!("Treasury account owner: {}", admin_keypair.pubkey());
+
+    //minting tokens into the treasury to give them away
+
+    //creating mint_to instruction to put tokens in the treasury
+    let mint_to_treasury_ix = mint_to(
+        &spl_token::id(),
+        &mint_keypair.pubkey(),
+        &faucet_treasury_account.pubkey(),
+        &admin_keypair.pubkey(),
+        &[],
+        1000_000_000,
+    )
+    .unwrap();
+
+    //sending the mint transaction
+    let mut mint_tx = Transaction::new_with_payer(&[mint_to_treasury_ix], Some(&payer.pubkey()));
+    mint_tx.sign(&[&payer, &admin_keypair], recent_blockhash);
+
+    let res = banks_client.process_transaction(mint_tx).await;
+    assert!(
+        res.is_ok(),
+        "Failed to mint tokens to the treasury: {:?}",
+        res
+    );
+
+    println!("Token successfully minted to the treasury!");
+    println!("Amount: 1,000 Tokens");
+    println!("Treasury has enough amount to destribute the tokens");
 }
