@@ -212,4 +212,39 @@ async fn test_initialize_faucet() {
     println!("User token account created and initialized successfully!");
     println!("Owner: {}", user_keypair.pubkey());
     println!("Token type: {}", mint_keypair.pubkey());
+
+    // faucet treasury account (place for faucet to store the tokens)
+    let faucet_treasury_account = Keypair::new();
+
+    let create_faucet_treasury_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &faucet_treasury_account.pubkey(),
+        token_account_lamports,
+        TokenAccount::LEN as u64,
+        &spl_token::id(),
+    );
+
+    let init_faucet_treasury_ix = spl_token::instruction::initialize_account(
+        &spl_token::id(),
+        &faucet_treasury_account.pubkey(),
+        &mint_keypair.pubkey(),
+        &admin_keypair.pubkey(),
+    )
+    .unwrap();
+
+    let mut treasury_tx = Transaction::new_with_payer(
+        &[create_faucet_treasury_ix, init_faucet_treasury_ix],
+        Some(&payer.pubkey()),
+    );
+    treasury_tx.sign(&[&payer, &faucet_treasury_account], recent_blockhash);
+
+    let res = banks_client.process_transaction(treasury_tx).await;
+    assert!(res.is_ok(), "Failed to create treasury account: {:?}", res);
+
+    println!("Faucet treasury account created successfully!");
+    println!(
+        "Treasury account address: {}",
+        faucet_treasury_account.pubkey()
+    );
+    println!("Treasury account owner: {}", admin_keypair.pubkey());
 }
