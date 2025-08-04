@@ -258,10 +258,10 @@ pub fn process_instruction(
             };
 
             //checking cooldown period
-            let time_slice_last_claim = current_time - user_record.last_claim_time;
+            let time_since_last_claim = current_time - user_record.last_claim_time;
 
-            if time_slice_last_claim < faucet_config.cooldown_seconds {
-                let remaining_cooldown = faucet_config.cooldown_seconds - time_slice_last_claim;
+            if time_since_last_claim < faucet_config.cooldown_seconds {
+                let remaining_cooldown = faucet_config.cooldown_seconds - time_since_last_claim;
                 msg!(
                     "Cooldown period not met! Please wait for {} seconds",
                     remaining_cooldown
