@@ -37,6 +37,7 @@ async fn test_initialize_faucet() {
     //creating a test token mint
     let mint_keypair = Keypair::new(); //for the tokens the faucet will distribute
     let admin_keypair = Keypair::new(); //admin who will initialize the faucet
+    let user_keypair = Keypair::new(); //user who wants to claim tokens
 
     //funding the admin account to pay for transactions
     let admin_account = Account {
@@ -47,8 +48,18 @@ async fn test_initialize_faucet() {
         rent_epoch: 0,
     };
 
+    let user_account = Account {
+        lamports: 100_000_000, //0.1 SOL
+        data: vec![],
+        owner: system_program::id(),
+        executable: false,
+        rent_epoch: 0,
+    };
+
     //adding admin account to test environment (b4 starting)
     program_test.add_account(admin_keypair.pubkey(), admin_account);
+
+    program_test.add_account(user_keypair.pubkey(), user_account);
 
     //starting the test env
     let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
@@ -159,9 +170,6 @@ async fn test_initialize_faucet() {
     println!("Active: {}", faucet_config.is_active);
 
     println!("\n Testing claiming tokens...");
-
-    //user who wants to claim tokens
-    let user_keypair = Keypair::new();
 
     //user token account
     let user_token_account = Keypair::new();
@@ -295,6 +303,7 @@ async fn test_initialize_faucet() {
             AccountMeta::new(user_token_account.pubkey(), false), //will receive tokens here
             AccountMeta::new(faucet_treasury_account.pubkey(), false), //source of tokens
             AccountMeta::new(faucet_config_pda, false),
+            AccountMeta::new_readonly(admin_keypair.pubkey(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(system_program::id(), false),
         ],
