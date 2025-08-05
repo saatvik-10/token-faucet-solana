@@ -237,7 +237,7 @@ async fn test_initialize_faucet() {
         &spl_token::id(),
         &faucet_treasury_account.pubkey(),
         &mint_keypair.pubkey(),
-        &admin_keypair.pubkey(),
+        &faucet_config_pda, // Use faucet PDA as owner instead of admin
     )
     .unwrap();
 
@@ -255,7 +255,7 @@ async fn test_initialize_faucet() {
         "Treasury account address: {}",
         faucet_treasury_account.pubkey()
     );
-    println!("Treasury account owner: {}", admin_keypair.pubkey());
+    println!("Treasury account owner: {}", faucet_config_pda);
 
     //minting tokens into the treasury to give them away
 
@@ -302,7 +302,7 @@ async fn test_initialize_faucet() {
             AccountMeta::new(user_claim_pda, false),       //user claim record PDA
             AccountMeta::new(user_token_account.pubkey(), false), //will receive tokens here
             AccountMeta::new(faucet_treasury_account.pubkey(), false), //source of tokens
-            AccountMeta::new(faucet_config_pda, false),
+            AccountMeta::new(faucet_config_pda, false), //faucet config account
             AccountMeta::new_readonly(admin_keypair.pubkey(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(system_program::id(), false),
