@@ -525,11 +525,7 @@ async fn test_cooldown_enforcement() {
 
     println!("First claim succeeded!");
 
-    /*
-            warp_to_slot() = moves the blockchain forward by 3 slots
-    Each slot ≈ 400ms, so 3 slots ≈ 1.2 seconds
-         */
-   
+    //Each slot ≈ 400ms, so 3 slots ≈ 1.2 seconds
 
     // Verify user received tokens
     let user_token_data = banks_client
