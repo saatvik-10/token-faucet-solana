@@ -5,6 +5,7 @@ use solana_program::{
     entrypoint,
     entrypoint::ProgramResult,
     msg,
+    program::invoke,
     program::invoke_signed,
     program_error::ProgramError,
     program_pack::Pack,
@@ -178,6 +179,8 @@ pub fn process_instruction(
             //faucet config account (contain settings)
             let faucet_account_config = next_account_info(accounts_iter)?;
 
+            let admin_account = next_account_info(accounts_iter)?;
+
             // token program
             let token_program = next_account_info(accounts_iter)?;
 
@@ -279,7 +282,7 @@ pub fn process_instruction(
                 &TOKEN_PROGRAM_ID,
                 faucet_treasury_account.key, //source token account
                 user_token_account.key,      //destination token account
-                &faucet_config_pda,          //authority (pda signing for faucet)
+                &faucet_config_pda,          //authority (faucet config PDA)
                 &[],
                 faucet_config.tokens_per_claim, //amount to transfer
             )
@@ -288,16 +291,16 @@ pub fn process_instruction(
                 ProgramError::InvalidInstructionData
             })?;
 
-            //execute the token transfer via CPI
+            //execute the token transfer via CPI with PDA signature
             invoke_signed(
                 &transfer_instruction,
                 &[
                     faucet_treasury_account.clone(),
                     user_token_account.clone(),
-                    faucet_account_config.clone(),
+                    faucet_account_config.clone(), // Use faucet config PDA as authority
                     token_program.clone(),
                 ],
-                &[&[faucet_config_seed, &[faucet_bump_seed]]], //pda signature
+                &[&[faucet_config_seed, &[faucet_bump_seed]]], //PDA signature
             )?;
 
             //updating user's claim records
