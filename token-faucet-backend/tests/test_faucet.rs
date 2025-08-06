@@ -24,6 +24,7 @@ use spl_token::{
 use token_faucet_backend::{FaucetConfig, FaucetInstruction, UserClaimedRecord};
 
 #[tokio::test] //handles async/await
+// Init → Treasury → First Claim
 async fn test_initialize_faucet() {
     //creating the test env
     let program_id = Pubkey::new_unique();
@@ -302,7 +303,7 @@ async fn test_initialize_faucet() {
             AccountMeta::new(user_claim_pda, false),       //user claim record PDA
             AccountMeta::new(user_token_account.pubkey(), false), //will receive tokens here
             AccountMeta::new(faucet_treasury_account.pubkey(), false), //source of tokens
-            AccountMeta::new(faucet_config_pda, false), //faucet config account
+            AccountMeta::new(faucet_config_pda, false),    //faucet config account
             AccountMeta::new_readonly(admin_keypair.pubkey(), false),
             AccountMeta::new_readonly(spl_token::id(), false),
             AccountMeta::new_readonly(system_program::id(), false),
@@ -319,4 +320,309 @@ async fn test_initialize_faucet() {
     assert!(res.is_ok(), "Tokem claim failed: {:?}", res);
 
     println!("Tokens have been claimed successfully!");
+}
+
+#[tokio::test]
+// Setup → First Claim → Immediate Second Claim (should fail)
+async fn test_cooldown_enforcement() {
+    println!("Cooldown Test Enforcement!");
+    println!("Testing that users don't claim twice within the cooldown period!");
+
+    let program_id = Pubkey::new_unique();
+    let mut program_test = ProgramTest::new(
+        "token_faucet_backend",
+        program_id,
+        processor!(token_faucet_backend::process_instruction),
+    );
+
+    let mint_keypair = Keypair::new();
+    let admin_keypair = Keypair::new();
+    let user_keypair = Keypair::new();
+
+    //funding the accounts
+    let admin_account = Account {
+        lamports: 1000_000_000,
+        data: vec![],
+        owner: system_program::id(),
+        executable: false,
+        rent_epoch: 0,
+    };
+    program_test.add_account(admin_keypair.pubkey(), admin_account);
+
+    let user_account = Account {
+        lamports: 100_000_000,
+        data: vec![],
+        owner: system_program::id(),
+        executable: false,
+        rent_epoch: 0,
+    };
+    program_test.add_account(user_keypair.pubkey(), user_account);
+
+    let (mut banks_client, payer, recent_blockhash) = program_test.start().await;
+
+    let mint_rent = banks_client.get_rent().await.unwrap();
+    let mint_lamports = mint_rent.minimum_balance(Mint::LEN);
+
+    let create_mint_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &mint_keypair.pubkey(),
+        mint_lamports,
+        Mint::LEN as u64,
+        &spl_token::id(),
+    );
+
+    let init_mint_ix = initialize_mint(
+        &spl_token::id(),
+        &mint_keypair.pubkey(),
+        &admin_keypair.pubkey(),
+        None,
+        6,
+    )
+    .unwrap();
+
+    let mut mint_tx =
+        Transaction::new_with_payer(&[create_mint_ix, init_mint_ix], Some(&payer.pubkey()));
+    mint_tx.sign(&[&payer, &mint_keypair], recent_blockhash);
+    banks_client.process_transaction(mint_tx).await.unwrap();
+
+    println!("Mint created for cooldown test");
+
+    // Initialize faucet
+    let faucet_config_seed = b"faucet_config";
+    let (faucet_config_pda, _) = Pubkey::find_program_address(&[faucet_config_seed], &program_id);
+
+    let initialize_faucet = FaucetInstruction::InitializeFaucet {
+        tokens_per_claim: 1000000000,
+        cooldown_seconds: 60, // 60 second cooldown for testing
+    };
+
+    let init_ix = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(admin_keypair.pubkey(), true),
+            AccountMeta::new(faucet_config_pda, false),
+            AccountMeta::new_readonly(mint_keypair.pubkey(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: borsh::to_vec(&initialize_faucet).unwrap(),
+    };
+
+    let mut init_tx = Transaction::new_with_payer(&[init_ix], Some(&payer.pubkey()));
+    init_tx.sign(&[&payer, &admin_keypair], recent_blockhash);
+    banks_client.process_transaction(init_tx).await.unwrap();
+
+    println!("Faucet initialized for cooldown test");
+
+    let faucet_treasury_account = Keypair::new();
+    let token_account_rent = banks_client.get_rent().await.unwrap();
+    let token_account_lamports = token_account_rent.minimum_balance(TokenAccount::LEN);
+
+    // Create treasury account
+    let create_treasury_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &faucet_treasury_account.pubkey(),
+        token_account_lamports,
+        TokenAccount::LEN as u64,
+        &spl_token::id(),
+    );
+
+    let init_treasury_ix = spl_token::instruction::initialize_account(
+        &spl_token::id(),
+        &faucet_treasury_account.pubkey(),
+        &mint_keypair.pubkey(),
+        &faucet_config_pda, // Faucet PDA owns treasury (same as main test)
+    )
+    .unwrap();
+
+    let mut treasury_tx = Transaction::new_with_payer(
+        &[create_treasury_ix, init_treasury_ix],
+        Some(&payer.pubkey()),
+    );
+    treasury_tx.sign(&[&payer, &faucet_treasury_account], recent_blockhash);
+    banks_client.process_transaction(treasury_tx).await.unwrap();
+
+    // Mint tokens to treasury
+    let mint_to_ix = mint_to(
+        &spl_token::id(),
+        &mint_keypair.pubkey(),
+        &faucet_treasury_account.pubkey(),
+        &admin_keypair.pubkey(),
+        &[],
+        5000000000, // 5,000 tokens
+    )
+    .unwrap();
+
+    let mut mint_tx = Transaction::new_with_payer(&[mint_to_ix], Some(&payer.pubkey()));
+    mint_tx.sign(&[&payer, &admin_keypair], recent_blockhash);
+    banks_client.process_transaction(mint_tx).await.unwrap();
+
+    println!("Treasury setup complete - 5,000 tokens available");
+
+    let user_token_account = Keypair::new();
+
+    let create_user_token_ix = system_instruction::create_account(
+        &payer.pubkey(),
+        &user_token_account.pubkey(),
+        token_account_lamports,
+        TokenAccount::LEN as u64,
+        &spl_token::id(),
+    );
+
+    let init_user_token_ix = spl_token::instruction::initialize_account(
+        &spl_token::id(),
+        &user_token_account.pubkey(),
+        &mint_keypair.pubkey(),
+        &user_keypair.pubkey(),
+    )
+    .unwrap();
+
+    let mut user_token_tx = Transaction::new_with_payer(
+        &[create_user_token_ix, init_user_token_ix],
+        Some(&payer.pubkey()),
+    );
+    user_token_tx.sign(&[&payer, &user_token_account], recent_blockhash);
+    banks_client
+        .process_transaction(user_token_tx)
+        .await
+        .unwrap();
+
+    println!("User token account ready");
+
+    let user_claim_seed = b"user_claim";
+    let (user_claim_pda, _) = Pubkey::find_program_address(
+        &[user_claim_seed, user_keypair.pubkey().as_ref()],
+        &program_id,
+    );
+
+    println!("COOLDOWN TEST: Attempting first claim...");
+
+    let claim_instruction = FaucetInstruction::ClaimTokens;
+
+    let first_claim_ix = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(user_keypair.pubkey(), true),
+            AccountMeta::new(user_claim_pda, false),
+            AccountMeta::new(user_token_account.pubkey(), false),
+            AccountMeta::new(faucet_treasury_account.pubkey(), false),
+            AccountMeta::new(faucet_config_pda, false),
+            AccountMeta::new_readonly(admin_keypair.pubkey(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: borsh::to_vec(&claim_instruction).unwrap(),
+    };
+
+    let mut first_claim_tx = Transaction::new_with_payer(&[first_claim_ix], Some(&payer.pubkey()));
+    first_claim_tx.sign(&[&payer, &user_keypair], recent_blockhash);
+
+    let first_result = banks_client.process_transaction(first_claim_tx).await;
+    assert!(
+        first_result.is_ok(),
+        "First claim should succeed: {:?}",
+        first_result
+    );
+
+    println!("First claim succeeded!");
+
+    /*
+            warp_to_slot() = moves the blockchain forward by 3 slots
+    Each slot ≈ 400ms, so 3 slots ≈ 1.2 seconds
+         */
+   
+
+    // Verify user received tokens
+    let user_token_data = banks_client
+        .get_account(user_token_account.pubkey())
+        .await
+        .unwrap()
+        .unwrap();
+    let user_balance = TokenAccount::unpack(&user_token_data.data).unwrap();
+    assert_eq!(
+        user_balance.amount, 1000000000,
+        "User should have 1,000 tokens"
+    );
+
+    println!(
+        "User token balance verified: {} tokens",
+        user_balance.amount as f64 / 1_000_000.0
+    );
+
+    println!("COOLDOWN TEST: Attempting immediate second claim (should fail)...");
+
+    let second_claim_ix = Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(user_keypair.pubkey(), true),
+            AccountMeta::new(user_claim_pda, false),
+            AccountMeta::new(user_token_account.pubkey(), false),
+            AccountMeta::new(faucet_treasury_account.pubkey(), false),
+            AccountMeta::new(faucet_config_pda, false),
+            AccountMeta::new_readonly(admin_keypair.pubkey(), false),
+            AccountMeta::new_readonly(spl_token::id(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: borsh::to_vec(&claim_instruction).unwrap(), // Same instruction
+    };
+
+    let mut second_claim_tx =
+        Transaction::new_with_payer(&[second_claim_ix], Some(&payer.pubkey()));
+    second_claim_tx.sign(&[&payer, &user_keypair], recent_blockhash);
+
+    let second_result = banks_client.process_transaction(second_claim_tx).await;
+
+    assert!(
+        second_result.is_err(),
+        "Second claim should fail due to cooldown!"
+    );
+
+    println!("Second claim correctly failed due to cooldown!");
+
+    //verifying error type
+    match second_result {
+        Err(e) => {
+            println!("Cooldown error details: {:?}", e);
+        }
+        Ok(_) => panic!("Second claim should have failed but didn't!"),
+    }
+
+    //verifying balance unchanged or not
+    let user_token_data_after = banks_client
+        .get_account(user_token_account.pubkey())
+        .await
+        .unwrap()
+        .unwrap();
+
+    let user_balance_after = TokenAccount::unpack(&user_token_data_after.data).unwrap();
+
+    assert_eq!(
+        user_balance_after.amount, 1000_000_000,
+        "User balance should be unchanged after the claim failed!"
+    );
+
+    println!(
+        "User balance unchanged: {} tokens",
+        user_balance_after.amount as f64 / 1000_000.0
+    );
+
+    //verifying the claim record
+    let claim_record_data = banks_client
+        .get_account(user_claim_pda)
+        .await
+        .unwrap()
+        .unwrap();
+    let claim_record = UserClaimedRecord::try_from_slice(&claim_record_data.data).unwrap();
+
+    assert_eq!(
+        claim_record.total_claims, 1,
+        "Should still show only 1 successful claim!"
+    );
+
+    println!(
+        "Claim record verified: {} total claims",
+        claim_record.total_claims
+    );
+    println!("Last claim time: {}", claim_record.last_claim_time);
+
+    println!("Cooldown Test Completed!")
 }
