@@ -526,6 +526,17 @@ async fn test_cooldown_enforcement() {
     println!("First claim succeeded!");
 
     //Each slot ≈ 400ms, so 3 slots ≈ 1.2 seconds
+    // --- Advance slots to simulate cooldown time passing ---
+    // In Solana program-test, slots only advance when you process transactions.
+    // To simulate a 60s cooldown (about 150 slots at ~400ms/slot),
+    // we process 150 empty transactions. This is the only reliable way to advance time.
+    for _ in 0..150 {
+        let mut tx = Transaction::new_with_payer(&[], Some(&payer.pubkey()));
+        tx.sign(&[&payer], recent_blockhash);
+        // Ignore errors (e.g. duplicate blockhash) for these no-op txs
+        let _ = banks_client.process_transaction(tx).await;
+    }
+    println!("Advanced 150 slots to simulate cooldown period");
 
     // Verify user received tokens
     let user_token_data = banks_client
