@@ -1,3 +1,5 @@
+use std::io::Cursor;
+
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     account_info::{AccountInfo, next_account_info},
@@ -54,6 +56,11 @@ pub enum FaucetInstruction {
     //faucet config account
     //token program
     ClaimTokens,
+    UpdateFaucetConfig {
+        new_tokens_per_claim: Option<u64>,
+        new_cooldown_seconds: Option<u64>,
+        new_is_active: Option<bool>,
+    },
 }
 
 #[derive(Debug)]
@@ -61,6 +68,7 @@ pub enum FaucetError {
     CooldownNotMet,
     FaucetInactive,
     InsufficientFunds,
+    UnauthorizedAdmin,
 }
 
 impl From<FaucetError> for ProgramError {
@@ -69,6 +77,7 @@ impl From<FaucetError> for ProgramError {
             FaucetError::CooldownNotMet => ProgramError::Custom(1000),
             FaucetError::FaucetInactive => ProgramError::Custom(1001),
             FaucetError::InsufficientFunds => ProgramError::Custom(1002),
+            FaucetError::UnauthorizedAdmin => ProgramError::Custom(1003),
         }
     }
 }
@@ -342,6 +351,61 @@ pub fn process_instruction(
             msg!("User: {}", user_account.key);
             msg!("Amount: {}", faucet_config.tokens_per_claim);
             msg!("Total user claims: {}", user_record.total_claims);
+        }
+
+        FaucetInstruction::UpdateFaucetConfig {
+            new_tokens_per_claim,
+            new_cooldown_seconds,
+            new_is_active,
+        } => {
+            msg!("Processing faucet update request!");
+
+            let accounts_iter = &mut accounts.iter();
+
+            let admin_account = next_account_info(accounts_iter)?;
+            let faucet_config_account = next_account_info(accounts_iter)?;
+
+            // Validate admin is signer
+            if !admin_account.is_signer {
+                msg!("Admin must be the signer!");
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+
+            //loading the current config
+            let mut faucet_config =
+                FaucetConfig::try_from_slice((&faucet_config_account.data.borrow()))?;
+
+            //checking if the caller is the real admin
+            if admin_account.key != &faucet_config.admin {
+                msg!("Unauthorized admin access attempt!");
+                msg!("Expected admin: {}", faucet_config.admin);
+                msg!("Actual caller: {}", admin_account.key);
+                return Err(FaucetError::UnauthorizedAdmin.into());
+            }
+
+            msg!("Admin account verified!");
+
+            if let Some(tokens) = new_tokens_per_claim {
+                faucet_config.tokens_per_claim = tokens;
+                msg!("Updated tokens per claim to: {}", tokens);
+            }
+
+            if let Some(cooldown) = new_cooldown_seconds {
+                faucet_config.cooldown_seconds = cooldown as i64;
+                msg!("Updated cooldown to: {} seconds", cooldown);
+            }
+
+            if let Some(active) = new_is_active {
+                faucet_config.is_active = active;
+                msg!(
+                    "Updated faucet status to: {}",
+                    if active { "ACTIVE" } else { "INACTIVE" }
+                );
+            }
+
+            faucet_config.serialize(&mut &mut faucet_config_account.data.borrow_mut()[..])?;
+
+            msg!("Faucet Configuration updated successfully!")
         }
     }
     Ok(())
