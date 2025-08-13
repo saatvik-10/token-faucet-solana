@@ -56,6 +56,23 @@ pub enum FaucetInstruction {
     ClaimTokens,
 }
 
+#[derive(Debug)]
+pub enum FaucetError {
+    CooldownNotMet,
+    FaucetInactive,
+    InsufficientFunds,
+}
+
+impl From<FaucetError> for ProgramError {
+    fn from(e: FaucetError) -> Self {
+        match e {
+            FaucetError::CooldownNotMet => ProgramError::Custom(1000),
+            FaucetError::FaucetInactive => ProgramError::Custom(1001),
+            FaucetError::InsufficientFunds => ProgramError::Custom(1002),
+        }
+    }
+}
+
 entrypoint!(process_instruction);
 
 pub fn process_instruction(
@@ -179,8 +196,6 @@ pub fn process_instruction(
             //faucet config account (contain settings)
             let faucet_account_config = next_account_info(accounts_iter)?;
 
-            let admin_account = next_account_info(accounts_iter)?;
-
             // token program
             let token_program = next_account_info(accounts_iter)?;
 
@@ -193,7 +208,7 @@ pub fn process_instruction(
             //if faucet active or not
             if !faucet_config.is_active {
                 msg!("Faucet is currently inactive");
-                return Err(ProgramError::InvalidAccountData);
+                return Err(FaucetError::FaucetInactive.into());
             }
 
             //PDA for user claim record
@@ -269,13 +284,26 @@ pub fn process_instruction(
                     "Cooldown period not met! Please wait for {} seconds",
                     remaining_cooldown
                 );
-                return Err(ProgramError::InvalidAccountData);
+                return Err(FaucetError::CooldownNotMet.into());
             }
 
             msg!(
-                "Cooldown check passed! Transferring {} token",
+                "Cooldown check passed! Checking if {} tokens available...",
                 faucet_config.tokens_per_claim
             );
+
+            let treasury_data =
+                spl_token::state::Account::unpack(&faucet_treasury_account.data.borrow())
+                    .map_err(|_| ProgramError::InvalidAccountData)?;
+
+            if treasury_data.amount < faucet_config.tokens_per_claim {
+                msg!(
+                    "Treasury has {} tokens, but {} tokens requested!",
+                    treasury_data.amount,
+                    faucet_config.tokens_per_claim
+                );
+                return Err(FaucetError::InsufficientFunds.into());
+            }
 
             //creating token transfer instruction i.e. CPI
             let transfer_instruction = transfer(
