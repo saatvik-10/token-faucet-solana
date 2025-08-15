@@ -1,7 +1,7 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 import type { WalletContextState } from '@solana/wallet-adapter-react';
 // import * as borsh from 'borsh';
-import * as borsh from '@coral-xyz/borsh';
+import * as borsh from '@coral-xyz/borsh'; //raw blockchain data -> readable js
 import { toast } from 'react-hot-toast';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.PROGRAM_ID);
@@ -11,7 +11,7 @@ export class FaucetConfig {
   admin!: Uint8Array;
   token_mint!: Uint8Array;
   tokens_per_claim!: bigint;
-  cooldown!: bigint;
+  cooldown_seconds!: bigint;
   is_active!: boolean;
 
   constructor(field: FaucetConfig) {
@@ -36,7 +36,7 @@ export class FaucetService {
     this.wallet = wallet;
   }
 
-  //derive pda
+  //derive pda -> returns [address, bump_seed]
   getFaucetConfigPDA(): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
       [Uint8Array.from('faucet_config')], //same rust seed
@@ -63,7 +63,7 @@ export class FaucetService {
 
       console.log('✅ Faucet config loaded:', {
         tokensPerClaim: config.tokens_per_claim.toString(),
-        cooldownSeconds: config.cooldown.toString(),
+        cooldownSeconds: config.cooldown_seconds.toString(),
         isActive: config.is_active,
       });
 
