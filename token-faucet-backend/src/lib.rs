@@ -5,7 +5,7 @@ use solana_program::{
     entrypoint,
     entrypoint::ProgramResult,
     msg,
-    program::invoke,
+    // program::invoke,
     program::invoke_signed,
     program_error::ProgramError,
     program_pack::Pack,
@@ -377,7 +377,7 @@ pub fn process_instruction(
 
             //loading the current config
             let mut faucet_config =
-                FaucetConfig::try_from_slice((&faucet_config_account.data.borrow()))?;
+                FaucetConfig::try_from_slice(&faucet_config_account.data.borrow())?;
 
             //checking if the caller is the real admin
             if admin_account.key != &faucet_config.admin {
@@ -485,7 +485,7 @@ pub fn process_instruction(
 
             // Create withdrawal transfer
             let faucet_config_seed = b"faucet_config";
-            let (faucet_config_pda, faucet_bump_seed) =
+            let (_faucet_config_pda, faucet_bump_seed) =
                 Pubkey::find_program_address(&[faucet_config_seed], program_id);
 
             let transfer_instruction = spl_token::instruction::transfer(
