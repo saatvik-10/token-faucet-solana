@@ -1,5 +1,3 @@
-use std::io::Cursor;
-
 use borsh::{BorshDeserialize, BorshSerialize};
 use solana_program::{
     account_info::{AccountInfo, next_account_info},
@@ -58,7 +56,7 @@ pub enum FaucetInstruction {
     ClaimTokens,
     UpdateFaucetConfig {
         new_tokens_per_claim: Option<u64>,
-        new_cooldown_seconds: Option<u64>,
+        new_cooldown_seconds: Option<i64>,
         new_is_active: Option<bool>,
     },
     EmergencyPause,
@@ -218,6 +216,8 @@ pub fn process_instruction(
             //load faucet config
             let faucet_config = FaucetConfig::try_from_slice(&faucet_account_config.data.borrow())?;
 
+            let faucet_authority_account = next_account_info(accounts_iter)?; // Add this line
+
             //if faucet active or not
             if !faucet_config.is_active {
                 msg!("Faucet is currently inactive");
@@ -338,7 +338,7 @@ pub fn process_instruction(
                 &[
                     faucet_treasury_account.clone(),
                     user_token_account.clone(),
-                    faucet_account_config.clone(), // Use faucet config PDA as authority
+                    faucet_authority_account.clone(),
                     token_program.clone(),
                 ],
                 &[&[faucet_config_seed, &[faucet_bump_seed]]], //PDA signature
