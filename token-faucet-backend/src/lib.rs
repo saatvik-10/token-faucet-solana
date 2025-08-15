@@ -61,6 +61,7 @@ pub enum FaucetInstruction {
         new_cooldown_seconds: Option<u64>,
         new_is_active: Option<bool>,
     },
+    EmergencyPause,
 }
 
 #[derive(Debug)]
@@ -406,6 +407,40 @@ pub fn process_instruction(
             faucet_config.serialize(&mut &mut faucet_config_account.data.borrow_mut()[..])?;
 
             msg!("Faucet Configuration updated successfully!")
+        }
+
+        FaucetInstruction::EmergencyPause => {
+            msg!("Emergency Pause has been requested!");
+
+            let accounts_iter = &mut accounts.iter();
+
+            let admin_account = next_account_info(accounts_iter)?;
+            let faucet_config_account = next_account_info(accounts_iter)?;
+
+            //validating admin signature
+            if !admin_account.is_signer {
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+
+            //loading config and verifying the admin
+            let mut faucet_config =
+                FaucetConfig::try_from_slice(&faucet_config_account.data.borrow())?;
+
+            if admin_account.key != &faucet_config.admin {
+                msg!(
+                    "Unauthorized attempt to pause the faucet from: {}",
+                    admin_account.key
+                );
+
+                return Err(FaucetError::UnauthorizedAdmin.into());
+            }
+
+            faucet_config.is_active = false;
+            faucet_config.serialize(&mut &mut faucet_config_account.data.borrow_mut()[..])?;
+
+            msg!("Faucet has been pause by the admin!");
+            msg!("Admin: {}", admin_account.key);
+            msg!("All tokens have been blocked until the Faucet resumes!");
         }
     }
     Ok(())
