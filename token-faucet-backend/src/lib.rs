@@ -62,6 +62,9 @@ pub enum FaucetInstruction {
         new_is_active: Option<bool>,
     },
     EmergencyPause,
+    WithdrawTreasury {
+        amount: u64,
+    },
 }
 
 #[derive(Debug)]
@@ -441,6 +444,73 @@ pub fn process_instruction(
             msg!("Faucet has been pause by the admin!");
             msg!("Admin: {}", admin_account.key);
             msg!("All tokens have been blocked until the Faucet resumes!");
+        }
+
+        FaucetInstruction::WithdrawTreasury { amount } => {
+            msg!("Processing treasury withdrawal of: {} tokens", amount);
+
+            let accounts_iter = &mut accounts.iter();
+
+            let admin_account = next_account_info(accounts_iter)?;
+            let faucet_config_account = next_account_info(accounts_iter)?;
+            let faucet_authority_account = next_account_info(accounts_iter)?; // PDA for signing
+            let faucet_treasury_account = next_account_info(accounts_iter)?; // Source
+            let admin_token_account = next_account_info(accounts_iter)?; // Destination
+            let token_program = next_account_info(accounts_iter)?;
+
+            //security checks
+            if !admin_account.is_signer {
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+
+            let faucet_config = FaucetConfig::try_from_slice(&faucet_config_account.data.borrow())?;
+
+            if admin_account.key != &faucet_config.admin {
+                return Err(FaucetError::UnauthorizedAdmin.into());
+            }
+
+            // Check treasury has enough tokens
+            let treasury_data =
+                spl_token::state::Account::unpack(&faucet_treasury_account.data.borrow())
+                    .map_err(|_| FaucetError::InsufficientFunds)?;
+
+            if treasury_data.amount < amount {
+                msg!(
+                    "Cannot withdraw {} tokens, treasury only has {}",
+                    amount,
+                    treasury_data.amount
+                );
+                return Err(FaucetError::InsufficientFunds.into());
+            }
+
+            // Create withdrawal transfer
+            let faucet_config_seed = b"faucet_config";
+            let (faucet_config_pda, faucet_bump_seed) =
+                Pubkey::find_program_address(&[faucet_config_seed], program_id);
+
+            let transfer_instruction = spl_token::instruction::transfer(
+                &spl_token::id(),
+                faucet_treasury_account.key,  // From treasury
+                admin_token_account.key,      // To admin
+                faucet_authority_account.key, // Authority (PDA)
+                &[],
+                amount,
+            )?;
+
+            invoke_signed(
+                &transfer_instruction,
+                &[
+                    faucet_treasury_account.clone(),
+                    admin_token_account.clone(),
+                    faucet_authority_account.clone(),
+                    token_program.clone(),
+                ],
+                &[&[faucet_config_seed, &[faucet_bump_seed]]],
+            )?;
+
+            msg!("✅ Treasury withdrawal successful!");
+            msg!("Amount: {} tokens", amount);
+            msg!("Withdrawn to: {}", admin_token_account.key);
         }
     }
     Ok(())
