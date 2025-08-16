@@ -1,10 +1,17 @@
-import { Connection, PublicKey } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  Transaction,
+  TransactionInstruction,
+  SystemProgram,
+} from '@solana/web3.js';
 import type { WalletContextState } from '@solana/wallet-adapter-react';
 // import * as borsh from 'borsh';
 import * as borsh from '@coral-xyz/borsh'; //raw blockchain data -> readable js
 import { toast } from 'react-hot-toast';
+// import {Buffer} from 'buffer';
 
-const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID || "");
+const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID || '');
 
 //matching rust config
 export class FaucetConfig {
@@ -44,6 +51,82 @@ export class FaucetService {
     );
   }
 
+  async initializeFaucet(
+    tokenMint: PublicKey,
+    tokensPerClaim: number,
+    cooldownSeconds: number
+  ): Promise<string> {
+    if (!this.wallet.publicKey || !this.wallet.signTransaction) {
+      throw new Error('Wallet not connected');
+    }
+
+    console.log('🚀 Initializing faucet with:');
+    console.log('Token Mint:', tokenMint.toString());
+    console.log('Tokens per claim:', tokensPerClaim);
+    console.log('Cooldown:', cooldownSeconds);
+
+    const [faucetConfigPDA] = this.getFaucetConfigPDA();
+
+    //instruction data
+    const instructionData = Buffer.alloc(1 + 32 + 8 + 8);
+
+    let offset = 0;
+
+    //initializing faucet to byte 0
+    instructionData.writeUInt8(0, offset);
+    offset += 1;
+
+    //token mint
+    tokenMint.toBuffer().copy(instructionData, offset);
+    offset += 32;
+
+    //tokens per claim
+    instructionData.writeBigUInt64LE(
+      BigInt(tokensPerClaim * 1_000_000),
+      offset
+    );
+    offset += 8;
+
+    //cooldown seconds
+    instructionData.writeBigInt64LE(BigInt(cooldownSeconds), offset);
+
+    console.log('📦 Instruction data length:', instructionData.length);
+
+    const initTransaction = new Transaction().add(
+      new TransactionInstruction({
+        keys: [
+          { pubkey: faucetConfigPDA, isSigner: false, isWritable: true }, //who pays
+          { pubkey: this.wallet.publicKey, isSigner: true, isWritable: false }, //where to store
+          {
+            pubkey: SystemProgram.programId,
+            isSigner: false,
+            isWritable: false,
+          },
+        ],
+        programId: PROGRAM_ID,
+        data: instructionData,
+      })
+    );
+
+    console.log('Instruction Created!');
+
+    //creating and sending transaction
+    const transaction = new Transaction().add(initTransaction);
+
+    console.log('Signing transaction...');
+    const signedTransaction = await this.wallet.signTransaction(transaction);
+
+    const txid = await this.connection.sendRawTransaction(
+      signedTransaction.serialize()
+    );
+    await this.connection.confirmTransaction(txid);
+
+    toast.success('Faucet initialized successfully!');
+
+    console.log('🎉 Faucet initialized! Signature:', txid);
+    return txid;
+  }
+
   //get faucet config from the blockchain
   async getFaucetConfig(): Promise<FaucetConfig | null> {
     try {
@@ -52,6 +135,8 @@ export class FaucetService {
 
       //get account data
       const accountInfo = await this.connection.getAccountInfo(faucetConfigPDA);
+      console.log(accountInfo);
+
       if (!accountInfo) {
         return null;
       }

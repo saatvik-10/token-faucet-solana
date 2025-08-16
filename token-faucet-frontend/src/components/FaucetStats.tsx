@@ -33,6 +33,8 @@ const FaucetStats: React.FC = () => {
     fetchFaucetConfig();
   }, [connection, publicKey]);
 
+  console.log(publicKey, 'publicKey in FaucetStats');
+
   if (!publicKey) {
     return <p className='text-gray-400'>Connect wallet to view faucet stats</p>;
   }
