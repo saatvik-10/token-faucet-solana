@@ -34,7 +34,7 @@ export const WalletConnection: React.FC = () => {
               </div>
 
               <h2 className='text-2xl font-bold text-white mb-4'>
-                Connect Your Wallet
+                {connected ? 'Wallet Connected' : 'Connect Your Wallet'}
               </h2>
 
               {/* Wallet Button */}
