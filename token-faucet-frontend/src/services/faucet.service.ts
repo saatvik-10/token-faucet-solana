@@ -9,7 +9,7 @@ import type { WalletContextState } from '@solana/wallet-adapter-react';
 // import * as borsh from 'borsh';
 import * as borsh from '@coral-xyz/borsh'; //raw blockchain data -> readable js
 import { toast } from 'react-hot-toast';
-// import { Buffer } from 'buffer';
+import { Buffer } from 'buffer';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID || '');
 
@@ -46,7 +46,7 @@ export class FaucetService {
   //derive pda -> returns [address, bump_seed]
   getFaucetConfigPDA(): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
-      [Uint8Array.from('faucet_config')], //same rust seed
+      [Buffer.from('faucet_config', 'utf8')], //same rust seed
       PROGRAM_ID
     );
   }
@@ -56,9 +56,21 @@ export class FaucetService {
     tokensPerClaim: number,
     cooldownSeconds: number
   ): Promise<string> {
-    if (!this.wallet.publicKey || !this.wallet.signTransaction) {
-      throw new Error('Wallet not connected');
+    if (!this.wallet.publicKey) {
+      throw new Error('Wallet public key not available');
     }
+
+    if (!this.wallet.signTransaction) {
+      throw new Error('Wallet does not support transaction signing');
+    }
+
+    if (!this.wallet.connected) {
+      throw new Error('Wallet is not connected');
+    }
+
+    console.log('🚀 Wallet validation passed');
+    console.log('Public Key:', this.wallet.publicKey.toString());
+    console.log('Connected:', this.wallet.connected);
 
     console.log('🚀 Initializing faucet with:');
     console.log('Token Mint:', tokenMint.toString());
@@ -68,17 +80,13 @@ export class FaucetService {
     const [faucetConfigPDA] = this.getFaucetConfigPDA();
 
     //instruction data
-    const instructionData = Buffer.alloc(1 + 32 + 8 + 8);
+    const instructionData = Buffer.alloc(1 + 8 + 8);
 
     let offset = 0;
 
     //initializing faucet to byte 0
     instructionData.writeUInt8(0, offset);
     offset += 1;
-
-    //token mint
-    tokenMint.toBuffer().copy(instructionData, offset);
-    offset += 32;
 
     //tokens per claim
     instructionData.writeBigUInt64LE(
@@ -92,21 +100,23 @@ export class FaucetService {
 
     console.log('📦 Instruction data length:', instructionData.length);
 
-    const initTransaction = new Transaction().add(
-      new TransactionInstruction({
-        keys: [
-          { pubkey: faucetConfigPDA, isSigner: false, isWritable: true }, //who pays
-          { pubkey: this.wallet.publicKey, isSigner: true, isWritable: false }, //where to store
-          {
-            pubkey: SystemProgram.programId,
-            isSigner: false,
-            isWritable: false,
-          },
-        ],
-        programId: PROGRAM_ID,
-        data: instructionData,
-      })
-    );
+    const initTransaction = new TransactionInstruction({
+      keys: [
+        // Account 0: Admin (signer)
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true },
+
+        // Account 1: Faucet config PDA (writable)
+        { pubkey: faucetConfigPDA, isSigner: false, isWritable: true },
+
+        // Account 2: Token mint account
+        { pubkey: tokenMint, isSigner: false, isWritable: false },
+
+        // Account 3: System program (for PDA creation)
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ],
+      programId: PROGRAM_ID,
+      data: instructionData,
+    });
 
     console.log('Instruction Created!');
 
@@ -125,7 +135,11 @@ export class FaucetService {
     const signedTransaction = await this.wallet.signTransaction(transaction);
 
     const txid = await this.connection.sendRawTransaction(
-      signedTransaction.serialize()
+      signedTransaction.serialize(),
+      {
+        skipPreflight: false,
+        preflightCommitment: 'processed',
+      }
     );
     await this.connection.confirmTransaction(txid);
 

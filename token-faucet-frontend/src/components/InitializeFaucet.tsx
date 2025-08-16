@@ -11,8 +11,8 @@ export const InitializeFaucet: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
 
   const handleInitialize = async () => {
-    if (!wallet.publicKey || !wallet.signTransaction) {
-      toast.error('Please connect your wallet first.');
+    if (!wallet.publicKey || !wallet.signTransaction || !wallet.connected) {
+      toast.error('Please ensure your wallet is fully connected');
       return;
     }
 
