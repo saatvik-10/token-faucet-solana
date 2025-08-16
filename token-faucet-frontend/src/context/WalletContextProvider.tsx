@@ -5,7 +5,6 @@ import {
 } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base'; //chooses Solana network
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'; //creates wallet popup window
-// import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { useMemo } from 'react';
 import { clusterApiUrl } from '@solana/web3.js'; //gets the web address of Solana servers
 import '@solana/wallet-adapter-react-ui/styles.css';
