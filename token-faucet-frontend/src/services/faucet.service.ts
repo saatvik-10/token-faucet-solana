@@ -4,7 +4,7 @@ import type { WalletContextState } from '@solana/wallet-adapter-react';
 import * as borsh from '@coral-xyz/borsh'; //raw blockchain data -> readable js
 import { toast } from 'react-hot-toast';
 
-const PROGRAM_ID = new PublicKey(import.meta.env.PROGRAM_ID);
+const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID || "");
 
 //matching rust config
 export class FaucetConfig {
