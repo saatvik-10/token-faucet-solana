@@ -9,7 +9,7 @@ import type { WalletContextState } from '@solana/wallet-adapter-react';
 // import * as borsh from 'borsh';
 import * as borsh from '@coral-xyz/borsh'; //raw blockchain data -> readable js
 import { toast } from 'react-hot-toast';
-// import {Buffer} from 'buffer';
+// import { Buffer } from 'buffer';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID || '');
 
@@ -112,6 +112,14 @@ export class FaucetService {
 
     //creating and sending transaction
     const transaction = new Transaction().add(initTransaction);
+
+    // get recent blockhash before signing
+    console.log('Getting recent blockhash...');
+    const { blockhash } = await this.connection.getLatestBlockhash('confirmed');
+    transaction.recentBlockhash = blockhash;
+
+    // set fee payer
+    transaction.feePayer = this.wallet.publicKey;
 
     console.log('Signing transaction...');
     const signedTransaction = await this.wallet.signTransaction(transaction);
