@@ -181,4 +181,69 @@ export class FaucetService {
       return null;
     }
   }
+
+  async claimToken(): Promise<string> {
+    if (
+      !this.wallet.publicKey ||
+      !this.wallet.signTransaction ||
+      !this.wallet.connected
+    ) {
+      throw new Error(
+        'Wallet is not connected or does not support transaction signing'
+      );
+    }
+    console.log('Starting token claiming process...');
+
+    const [faucetConfigPDA] = this.getFaucetConfigPDA();
+    const [userClaimPDA] = this.getUserClaimPDA(this.wallet.publicKey);
+
+    //instruction data for claiming tokens
+    const instructionData = Buffer.alloc(1);
+    instructionData.writeUInt8(1, 0); // 1 for claim operation (2nd instruction in enum)
+
+    console.log("PDA's calculated:", {
+      faucetConfigPDA: faucetConfigPDA.toString(),
+      userClaimPDA: userClaimPDA.toString(),
+    });
+
+    //create instruction
+    const claimInstruction = new TransactionInstruction({
+      keys: [
+        { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true }, // user (signer)
+        { pubkey: userClaimPDA, isSigner: false, isWritable: true }, // user claim record
+        { pubkey: this.wallet.publicKey, isSigner: false, isWritable: true }, // user token account (simplified)
+        { pubkey: faucetConfigPDA, isSigner: false, isWritable: false }, // faucet config
+      ],
+      programId: PROGRAM_ID,
+      data: instructionData,
+    });
+
+    //create and send transaction
+    const transaction = new Transaction().add(claimInstruction);
+    const { blockhash } = await this.connection.getLatestBlockhash('confirmed');
+
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = this.wallet.publicKey;
+
+    console.log('🔏 Signing transaction...');
+    const signedTransaction = await this.wallet.signTransaction(transaction);
+
+    console.log('📡 Sending transaction...');
+    const signature = await this.connection.sendRawTransaction(
+      signedTransaction.serialize()
+    );
+
+    console.log('⏳ Confirming transaction...');
+    await this.connection.confirmTransaction(signature);
+
+    console.log('🎉 Tokens claimed! Signature:', signature);
+    return signature;
+  }
+
+  getUserClaimPDA(userPubkey: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('user_claim'), userPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+  }
 }
