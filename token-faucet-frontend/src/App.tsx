@@ -2,6 +2,7 @@ import React from 'react';
 import { WalletConnection } from './components/WalletConnection';
 import { FaucetStats } from './components/FaucetStats';
 import { InitializeFaucet } from './components/InitializeFaucet';
+import { ClaimTokens } from './components/ClaimTokens';
 
 const App: React.FC = () => {
   return (
@@ -12,6 +13,8 @@ const App: React.FC = () => {
         {/* <InitializeFaucet /> */}
 
         <FaucetStats />
+
+        <ClaimTokens />
       </div>
     </div>
   );
