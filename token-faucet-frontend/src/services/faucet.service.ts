@@ -198,7 +198,7 @@ export class FaucetService {
     const [userClaimPDA] = this.getUserClaimPDA(this.wallet.publicKey);
 
     //instruction data for claiming tokens
-    const instructionData = Buffer.alloc(1);
+    const instructionData = Buffer.alloc(1); //creates 1 byte telling Rust program "this is a ClaimTokens request"
     instructionData.writeUInt8(1, 0); // 1 for claim operation (2nd instruction in enum)
 
     console.log("PDA's calculated:", {
