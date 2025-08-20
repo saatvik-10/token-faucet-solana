@@ -10,6 +10,7 @@ import type { WalletContextState } from '@solana/wallet-adapter-react';
 import * as borsh from '@coral-xyz/borsh'; //raw blockchain data -> readable js
 import { toast } from 'react-hot-toast';
 import { Buffer } from 'buffer';
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID || '');
 
@@ -213,6 +214,8 @@ export class FaucetService {
         { pubkey: userClaimPDA, isSigner: false, isWritable: true }, // user claim record
         { pubkey: this.wallet.publicKey, isSigner: false, isWritable: true }, // user token account (simplified)
         { pubkey: faucetConfigPDA, isSigner: false, isWritable: false }, // faucet config
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // user claim
+        { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system program
       ],
       programId: PROGRAM_ID,
       data: instructionData,
