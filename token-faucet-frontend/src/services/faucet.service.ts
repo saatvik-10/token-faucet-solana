@@ -10,7 +10,7 @@ import type { WalletContextState } from '@solana/wallet-adapter-react';
 import * as borsh from '@coral-xyz/borsh'; //raw blockchain data -> readable js
 import { toast } from 'react-hot-toast';
 import { Buffer } from 'buffer';
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.VITE_PROGRAM_ID || '');
 
@@ -195,8 +195,21 @@ export class FaucetService {
     }
     console.log('Starting token claiming process...');
 
+    const faucetConfig = await this.getFaucetConfig();
+    if (!faucetConfig) {
+      throw new Error('Faucet not initialized');
+    }
+
+    const tokenMint = new PublicKey(faucetConfig.token_mint);
+
     const [faucetConfigPDA] = this.getFaucetConfigPDA();
     const [userClaimPDA] = this.getUserClaimPDA(this.wallet.publicKey);
+    const [faucetTreasuryPDA] = this.getFaucetTreasuryPDA(tokenMint);
+
+    const userTokenAccount = await getAssociatedTokenAddress(
+      tokenMint,
+      this.wallet.publicKey
+    );
 
     //instruction data for claiming tokens
     const instructionData = Buffer.alloc(1); //creates 1 byte telling Rust program "this is a ClaimTokens request"
@@ -212,10 +225,12 @@ export class FaucetService {
       keys: [
         { pubkey: this.wallet.publicKey, isSigner: true, isWritable: true }, // user (signer)
         { pubkey: userClaimPDA, isSigner: false, isWritable: true }, // user claim record
-        { pubkey: this.wallet.publicKey, isSigner: false, isWritable: true }, // user token account (simplified)
+        { pubkey: userTokenAccount, isSigner: false, isWritable: true }, // user token account
+        { pubkey: faucetTreasuryPDA, isSigner: false, isWritable: true }, // faucet treasury
         { pubkey: faucetConfigPDA, isSigner: false, isWritable: false }, // faucet config
-        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // user claim
+        { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false }, // token program
         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system program
+        { pubkey: faucetConfigPDA, isSigner: false, isWritable: false }, // faucet authority (SAME as config PDA!)
       ],
       programId: PROGRAM_ID,
       data: instructionData,
@@ -246,6 +261,13 @@ export class FaucetService {
   getUserClaimPDA(userPubkey: PublicKey): [PublicKey, number] {
     return PublicKey.findProgramAddressSync(
       [Buffer.from('user_claim'), userPubkey.toBuffer()],
+      PROGRAM_ID
+    );
+  }
+
+  getFaucetTreasuryPDA(tokenMint: PublicKey): [PublicKey, number] {
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('faucet_treasury'), tokenMint.toBuffer()],
       PROGRAM_ID
     );
   }
